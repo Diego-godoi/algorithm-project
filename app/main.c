@@ -5,6 +5,8 @@
 #include <string.h>
 #include <time.h>
 
+#define NUM_SIZES 3
+
 typedef struct {
   int n;
   const char *name;
@@ -13,29 +15,8 @@ typedef struct {
   comparison_count average_comparisons;
 } result_t;
 
-static void fill_random(int *v, size_t n);
-static void copy_array(const int *source, int *destination, size_t n);
-static void print_array(const int *v, size_t n);
-static double elapsed_seconds(const struct timespec *start,
-                              const struct timespec *end);
-static void run_quick_sort(int *v, int n, comparison_count *comparisons);
-static void run_heap_sort(int *v, int n, comparison_count *comparisons);
-static int run_binary_search(int *v, int n, int target,
-                             comparison_count *comparisons);
-static int run_ordered_sequential_search(int *v, int n, int target,
-                                         comparison_count *comparisons);
-
-static result_t measure(void (*sort)(int *v, int n,
-                                     comparison_count *comparisons),
-                        const char *name, const int *source, int *work, int n);
-
-static result_t measure_search_reps(
-    int (*search)(int *v, int n, int target, comparison_count *comparisons),
-    const char *name, const int *sorted_arr, int n, int target,
-    int expected_pos, long long reps);
-
-static void fill_random(int *v, size_t n) {
-  for (size_t i = 0; i < n; i++)
+static void fill_random(int *v, int n) {
+  for (int i = 0; i < n; i++)
     v[i] = rand();
 }
 
@@ -43,17 +24,17 @@ static void copy_array(const int *source, int *destination, size_t n) {
   memcpy(destination, source, n * sizeof *source);
 }
 
-static void print_array(const int *v, size_t n) {
-  const size_t sample = 20;
+static void print_array(const int *v, int n) {
+  const int sample = 20;
 
   printf("  ");
-  for (size_t i = 0; i < n && i < sample; i++)
+  for (int i = 0; i < n && i < sample; i++)
     printf("%d ", v[i]);
 
   if (n > sample)
     printf("... %d ", v[n - 1]);
 
-  printf("[n = %zu]\n", n);
+  printf("[n = %d]\n", n);
 }
 
 static double elapsed_seconds(const struct timespec *start,
@@ -62,26 +43,12 @@ static double elapsed_seconds(const struct timespec *start,
          (double)(end->tv_nsec - start->tv_nsec) / 1e9;
 }
 
-static void run_quick_sort(int *v, int n, comparison_count *comparisons) {
+/* Mantido apenas porque o quick_sort precisa de (0, n-1) em vez de apenas (n) */
+static void quick_sort_adapter(int *v, int n, comparison_count *comparisons) {
   quick_sort(v, 0, n - 1, comparisons);
 }
 
-static void run_heap_sort(int *v, int n, comparison_count *comparisons) {
-  heap_sort(v, n, comparisons);
-}
-
-static int run_binary_search(int *v, int n, int target,
-                             comparison_count *comparisons) {
-  return binary_search(v, n, target, comparisons);
-}
-
-static int run_ordered_sequential_search(int *v, int n, int target,
-                                         comparison_count *comparisons) {
-  return ordered_sequential_search(v, n, target, comparisons);
-}
-
-static result_t measure(void (*sort)(int *v, int n,
-                                     comparison_count *comparisons),
+static result_t measure(void (*sort)(int *v, int n, comparison_count *comparisons),
                         const char *name, const int *source, int *work, int n) {
   const int runs = 10;
   double total_time = 0.0;
@@ -90,7 +57,7 @@ static result_t measure(void (*sort)(int *v, int n,
   printf("%s:\n", name);
 
   for (int i = 0; i < runs; i++) {
-    copy_array(source, work, (size_t)n);
+    copy_array(source, work, n);
     comparison_count comparisons = 0;
     struct timespec start, end;
 
@@ -166,73 +133,62 @@ static result_t measure_search_reps(
          total_time / runs * 1e9, total_comparisons / runs);
 
   result_t r = {.n = n,
-                .name = name,
-                .pos = expected_pos,
-                .average_time = total_time / runs,
-                .average_comparisons = total_comparisons / runs};
+                    .name = name,
+                    .pos = expected_pos,
+                    .average_time = total_time / runs,
+                    .average_comparisons = total_comparisons / runs};
   return r;
 }
 
 int main(void) {
-  const int sizes[] = {100000, 500000, 1000000};
-  int total_sizes = (int)(sizeof sizes / sizeof sizes[0]);
-  result_t results[sizeof sizes / sizeof sizes[0]][2];
-
-  result_t search_results[sizeof sizes / sizeof sizes[0]][2][4];
+  const int sizes[NUM_SIZES] = {100000, 500000, 1000000};
+  result_t results[NUM_SIZES][2];
+  result_t search_results[NUM_SIZES][2][4];
 
   const char *search_pos_label[4] = {"0", "n-1", "n/2", "n/3"};
   const char *search_names[2] = {"binary_search", "ordered_sequential_search"};
 
   srand(time(NULL));
 
-  system("clear");
-
-  for (int i = 0; i < total_sizes; i++) {
+  for (int i = 0; i < NUM_SIZES; i++) {
     int n = sizes[i];
-    int *source = malloc((size_t)n * sizeof *source);
-    int *work = malloc((size_t)n * sizeof *work);
-    int *sorted_arr = malloc((size_t)n * sizeof *sorted_arr);
+    int *source = malloc(n * sizeof(*source));
+    int *work = malloc(n * sizeof(*work));
+    int *sorted_arr = malloc(n * sizeof(*sorted_arr));
 
-    if (source == NULL || work == NULL || sorted_arr == NULL) {
+    if (!source || !work || !sorted_arr) {
       fprintf(stderr, "falha na alocacao de memoria\n");
-      free(source);
-      free(work);
-      free(sorted_arr);
+      free(source); free(work); free(sorted_arr);
       return 1;
     }
 
-    fill_random(source, (size_t)n);
+    fill_random(source, n);
 
     printf("\t\t=== n = %d (10 execucoes por algoritmo) ===\n", n);
     printf("vetor aleatorio:\n");
-    print_array(source, (size_t)n);
+    print_array(source, n);
 
-    results[i][0] = measure(run_quick_sort, "quick_sort", source, work, n);
+    /* Usando o adapter do quick_sort */
+    results[i][0] = measure(quick_sort_adapter, "quick_sort", source, work, n);
     printf("\nvetor ordenado:\n");
-    print_array(work, (size_t)n);
+    print_array(work, n);
 
-    results[i][1] = measure(run_heap_sort, "heap_sort", source, work, n);
+    /* Passando heap_sort diretamente */
+    results[i][1] = measure(heap_sort, "heap_sort", source, work, n);
     printf("\nvetor ordenado:\n");
-    print_array(work, (size_t)n);
+    print_array(work, n);
 
-    copy_array(work, sorted_arr, (size_t)n);
+    /* Utilizando o copy_array novamente aqui */
+    copy_array(work, sorted_arr,  n);
 
     printf("\n\t\t=== BUSCAS (apenas a busca e cronometrada) ===\n");
     printf("vetor ordenado (base para as buscas):\n");
-    print_array(sorted_arr, (size_t)n);
+    print_array(sorted_arr,  n);
 
     int target_pos[4] = {0, n - 1, n / 2, n / 3};
-
-    /* A busca binaria faz ~log2(n) comparacoes, entao o tempo de uma unica
-       busca fica abaixo da resolucao do relogio. Repetimos a busca para que o
-       bloco cronometrado tenha duracao suficiente. */
     long long binary_reps = 100000;
-
-    /* A busca sequencial ordenada faz ate ~2n comparacoes, entao poucas
-       repeticoes ja produzem um bloco cronometrado grande o bastante. */
     long long sequential_reps = 20000000 / n;
-    if (sequential_reps < 1)
-      sequential_reps = 1;
+    if (sequential_reps < 1) sequential_reps = 1;
 
     for (int p = 0; p < 4; p++) {
       int pos = target_pos[p];
@@ -241,13 +197,12 @@ int main(void) {
       printf("\n--- alvo = vetor[%s] = vetor[%d] = %d ---\n",
              search_pos_label[p], pos, target);
 
-      search_results[i][0][p] =
-          measure_search_reps(run_binary_search, search_names[0], sorted_arr, n,
-                              target, pos, binary_reps);
+      /* Passando binary_search e ordered_sequential_search diretamente */
+      search_results[i][0][p] = measure_search_reps(
+          binary_search, search_names[0], sorted_arr, n, target, pos, binary_reps);
 
-      search_results[i][1][p] =
-          measure_search_reps(run_ordered_sequential_search, search_names[1],
-                              sorted_arr, n, target, pos, sequential_reps);
+      search_results[i][1][p] = measure_search_reps(
+          ordered_sequential_search, search_names[1], sorted_arr, n, target, pos, sequential_reps);
     }
 
     printf("\n");
@@ -259,10 +214,9 @@ int main(void) {
 
   printf("\t\t=== medias de 10 execucoes ===\n");
   printf("\t------ Algoritmos de Ordenação --------\n");
-  printf("%-10s %-12s %14s %22s\n", "n", "algoritmo", "tempo (s)",
-         "comparacoes");
+  printf("%-10s %-12s %14s %22s\n", "n", "algoritmo", "tempo (s)", "comparacoes");
 
-  for (int i = 0; i < total_sizes; i++)
+  for (int i = 0; i < NUM_SIZES; i++)
     for (int j = 0; j < 2; j++)
       printf("%-10d %-12s %14.6f %22llu\n", results[i][j].n, results[i][j].name,
              results[i][j].average_time, results[i][j].average_comparisons);
@@ -271,11 +225,10 @@ int main(void) {
   printf("%-10s %-26s %-8s %14s %16s %22s\n", "n", "algoritmo", "pos",
          "tempo (ns)", "tempo (s)", "comparacoes");
 
-  for (int i = 0; i < total_sizes; i++)
+  for (int i = 0; i < NUM_SIZES; i++)
     for (int p = 0; p < 4; p++)
       for (int j = 0; j < 2; j++) {
         const result_t *r = &search_results[i][j][p];
-
         printf("%-10d %-26s %-8s %14.2f %16.6f %22llu\n", r->n, search_names[j],
                search_pos_label[p], r->average_time * 1e9, r->average_time,
                r->average_comparisons);
